@@ -1,0 +1,22 @@
+resources:
+  pipelines:
+    freight_pipeline:
+      name: freight-lakehouse-pipeline
+      catalog: ${var.catalog}
+      schema: silver
+      serverless: true
+      channel: CURRENT
+      root_path: ../src/pipeline
+      libraries:
+        - file:
+            path: ../src/pipeline/bronze.py
+        - file:
+            path: ../src/pipeline/silver.py
+        - file:
+            path: ../src/pipeline/gold.py
+      configuration:
+        catalog: ${var.catalog}
+        landing_path: /Volumes/${var.catalog}/raw/landing
+      tags:
+        aidevkit_project: ai-dev-kit
+        domain: logistics

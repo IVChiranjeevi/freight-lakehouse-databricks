@@ -1,0 +1,9 @@
+resources:
+  dashboards:
+    freight_operations_dashboard:
+      display_name: Freight Operations Control Tower
+      file_path: ../src/dashboards/freight_operations.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      # Dataset queries use schema.table (gold.*); this sets the catalog per target.
+      dataset_catalog: ${var.catalog}
+      embed_credentials: false

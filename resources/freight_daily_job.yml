@@ -1,0 +1,43 @@
+resources:
+  jobs:
+    freight_daily_job:
+      name: freight-lakehouse-daily
+      description: Generate a batch of freight data, refresh bronze/silver/gold and check data quality.
+      # STANDARD: nightly batch, no latency SLA.
+      performance_target: STANDARD
+      max_concurrent_runs: 1
+      tags:
+        aidevkit_project: ai-dev-kit
+        domain: logistics
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: America/Chicago
+        pause_status: UNPAUSED  # development mode pauses schedules automatically
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: num_shipments
+          default: ${var.num_shipments}
+      tasks:
+        - task_key: setup_catalog
+          notebook_task:
+            notebook_path: ../src/setup/00_setup_catalog.py
+
+        - task_key: generate_data
+          depends_on:
+            - task_key: setup_catalog
+          notebook_task:
+            notebook_path: ../src/data_generator/01_generate_data.py
+
+        - task_key: refresh_lakehouse
+          depends_on:
+            - task_key: generate_data
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.freight_pipeline.id}
+            full_refresh: false
+
+        - task_key: data_quality_report
+          depends_on:
+            - task_key: refresh_lakehouse
+          notebook_task:
+            notebook_path: ../src/quality/02_data_quality_report.py

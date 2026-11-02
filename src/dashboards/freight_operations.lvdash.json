@@ -1,0 +1,1358 @@
+{
+  "datasets": [
+    {
+      "name": "ds_status",
+      "displayName": "Shipment status",
+      "queryLines": [
+        "SELECT shipment_id, house_bill_number, customer_id, transport_mode, service_level,\n",
+        "       origin_code, destination_code, shipment_status, is_delivered, is_on_time,\n",
+        "       is_overdue_in_transit, exception_count, transit_hours, booking_date, delivery_date\n",
+        "FROM gold.shipment_status\n"
+      ]
+    },
+    {
+      "name": "ds_daily",
+      "displayName": "Daily operations KPIs",
+      "queryLines": [
+        "SELECT * FROM gold.daily_operations_kpis\n"
+      ]
+    },
+    {
+      "name": "ds_overdue",
+      "displayName": "Overdue in transit",
+      "queryLines": [
+        "SELECT house_bill_number, customer_id, transport_mode,\n",
+        "       concat(origin_code, ' → ', destination_code) AS lane, shipment_status,\n",
+        "       planned_delivery_ts, last_event_ts, exception_count,\n",
+        "       round((unix_timestamp(current_timestamp()) - unix_timestamp(planned_delivery_ts)) / 3600, 1) AS hours_late\n",
+        "FROM gold.shipment_status\n",
+        "WHERE is_overdue_in_transit\n",
+        "ORDER BY planned_delivery_ts\n"
+      ]
+    },
+    {
+      "name": "ds_carriers",
+      "displayName": "Carrier scorecard",
+      "queryLines": [
+        "SELECT carrier_name, transport_mode, contract_type, shipments, delivered, on_time_pct,\n",
+        "       exception_rate_pct, avg_transit_hours, carrier_spend_usd, cost_per_kg\n",
+        "FROM gold.carrier_scorecard\n"
+      ]
+    },
+    {
+      "name": "ds_lanes",
+      "displayName": "Top lanes",
+      "queryLines": [
+        "SELECT transport_mode, concat(origin_code, ' → ', destination_code) AS lane, shipments, on_time_pct,\n",
+        "       avg_transit_hours, revenue_usd, gross_margin_usd,\n",
+        "       round(100 * gross_margin_usd / nullif(revenue_usd, 0), 1) AS margin_pct, revenue_per_kg\n",
+        "FROM gold.lane_performance\n",
+        "WHERE revenue_usd > 0\n",
+        "ORDER BY gross_margin_usd DESC\n",
+        "LIMIT 25\n"
+      ]
+    },
+    {
+      "name": "ds_customers",
+      "displayName": "Customer profitability",
+      "queryLines": [
+        "SELECT customer_name, account_tier, industry, country_code, shipments, cancelled_shipments,\n",
+        "       on_time_pct, revenue_usd, gross_margin_usd, gross_margin_pct, avg_revenue_per_shipment\n",
+        "FROM gold.customer_profitability\n",
+        "WHERE revenue_usd IS NOT NULL\n"
+      ]
+    },
+    {
+      "name": "ds_ar",
+      "displayName": "AR aging",
+      "queryLines": [
+        "SELECT CASE aging_bucket WHEN 'CURRENT' THEN '0. Current' WHEN '1-30' THEN '1. 1-30 days'\n",
+        "            WHEN '31-60' THEN '2. 31-60 days' WHEN '61-90' THEN '3. 61-90 days' ELSE '4. 90+ days' END AS aging_bucket,\n",
+        "       open_invoices, open_amount_usd\n",
+        "FROM gold.ar_aging\n"
+      ]
+    },
+    {
+      "name": "ds_customs",
+      "displayName": "Customs clearance",
+      "queryLines": [
+        "SELECT import_country, broker, entries, pending_entries, avg_clearance_hours,\n",
+        "       p90_clearance_hours, inspection_rate_pct, duties_usd\n",
+        "FROM gold.customs_clearance_kpis\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "operations",
+      "displayName": "Operations control tower",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "f_mode",
+            "queries": [
+              {
+                "name": "filter_ds_status",
+                "query": {
+                  "datasetName": "ds_status",
+                  "fields": [
+                    {
+                      "name": "transport_mode",
+                      "expression": "`transport_mode`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "filter_ds_daily",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "transport_mode",
+                      "expression": "`transport_mode`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "filter_ds_overdue",
+                "query": {
+                  "datasetName": "ds_overdue",
+                  "fields": [
+                    {
+                      "name": "transport_mode",
+                      "expression": "`transport_mode`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "transport_mode",
+                    "displayName": "Transport mode",
+                    "queryName": "filter_ds_status"
+                  },
+                  {
+                    "fieldName": "transport_mode",
+                    "displayName": "Transport mode",
+                    "queryName": "filter_ds_daily"
+                  },
+                  {
+                    "fieldName": "transport_mode",
+                    "displayName": "Transport mode",
+                    "queryName": "filter_ds_overdue"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Transport mode"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "c_active",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_status",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "expression": "COUNT_IF(NOT `is_delivered` AND `shipment_status` <> 'CANCELLED')"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "value",
+                  "displayName": "Active shipments"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Active shipments"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "c_otd",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_status",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "expression": "ROUND(100 * COUNT_IF(`is_on_time`) / COUNT_IF(`is_delivered`), 1)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "value",
+                  "displayName": "On-time delivery %"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "On-time delivery %"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 1,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "c_overdue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_status",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "expression": "COUNT_IF(`is_overdue_in_transit`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "value",
+                  "displayName": "Overdue in transit"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Overdue in transit"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 1,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "c_exc",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_status",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "expression": "COUNT_IF(`exception_count` > 0)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "value",
+                  "displayName": "Shipments with exceptions"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Shipments with exceptions"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 1,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "c_transit",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_status",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "expression": "ROUND(AVG(`transit_hours`), 1)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "value",
+                  "displayName": "Avg transit hours"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Avg transit hours"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 1,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "c_cancel",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_status",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "expression": "COUNT_IF(`shipment_status` = 'CANCELLED')"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "value",
+                  "displayName": "Cancelled bookings"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cancelled bookings"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 1,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "l_deliveries",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "delivery_date",
+                      "expression": "DATE_TRUNC(\"DAY\", `delivery_date`)"
+                    },
+                    {
+                      "name": "delivered",
+                      "expression": "SUM(`shipments_delivered`)"
+                    },
+                    {
+                      "name": "transport_mode",
+                      "expression": "`transport_mode`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "delivery_date",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "delivery date"
+                },
+                "y": {
+                  "fieldName": "delivered",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Shipments delivered per day"
+                },
+                "color": {
+                  "fieldName": "transport_mode",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "transport mode"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Shipments delivered per day"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "b_status",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_status",
+                  "fields": [
+                    {
+                      "name": "shipment_status",
+                      "expression": "`shipment_status`"
+                    },
+                    {
+                      "name": "shipments",
+                      "expression": "COUNT(`shipment_id`)"
+                    },
+                    {
+                      "name": "transport_mode",
+                      "expression": "`transport_mode`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "shipment_status",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "shipment status"
+                },
+                "y": {
+                  "fieldName": "shipments",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Shipments by status"
+                },
+                "color": {
+                  "fieldName": "transport_mode",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "transport mode"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Shipments by status"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "t_overdue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_overdue",
+                  "fields": [
+                    {
+                      "name": "house_bill_number",
+                      "expression": "`house_bill_number`"
+                    },
+                    {
+                      "name": "customer_id",
+                      "expression": "`customer_id`"
+                    },
+                    {
+                      "name": "transport_mode",
+                      "expression": "`transport_mode`"
+                    },
+                    {
+                      "name": "lane",
+                      "expression": "`lane`"
+                    },
+                    {
+                      "name": "shipment_status",
+                      "expression": "`shipment_status`"
+                    },
+                    {
+                      "name": "planned_delivery_ts",
+                      "expression": "`planned_delivery_ts`"
+                    },
+                    {
+                      "name": "hours_late",
+                      "expression": "`hours_late`"
+                    },
+                    {
+                      "name": "last_event_ts",
+                      "expression": "`last_event_ts`"
+                    },
+                    {
+                      "name": "exception_count",
+                      "expression": "`exception_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "house_bill_number",
+                    "displayName": "house bill number"
+                  },
+                  {
+                    "fieldName": "customer_id",
+                    "displayName": "customer id"
+                  },
+                  {
+                    "fieldName": "transport_mode",
+                    "displayName": "transport mode"
+                  },
+                  {
+                    "fieldName": "lane",
+                    "displayName": "lane"
+                  },
+                  {
+                    "fieldName": "shipment_status",
+                    "displayName": "shipment status"
+                  },
+                  {
+                    "fieldName": "planned_delivery_ts",
+                    "displayName": "planned delivery ts"
+                  },
+                  {
+                    "fieldName": "hours_late",
+                    "displayName": "hours late"
+                  },
+                  {
+                    "fieldName": "last_event_ts",
+                    "displayName": "last event ts"
+                  },
+                  {
+                    "fieldName": "exception_count",
+                    "displayName": "exception count"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Overdue shipments still in transit"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 6,
+            "height": 7
+          }
+        }
+      ]
+    },
+    {
+      "name": "carriers_lanes",
+      "displayName": "Carriers & lanes",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "b_carrier_otd",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_carriers",
+                  "fields": [
+                    {
+                      "name": "carrier_name",
+                      "expression": "`carrier_name`"
+                    },
+                    {
+                      "name": "on_time_pct",
+                      "expression": "AVG(`on_time_pct`)"
+                    },
+                    {
+                      "name": "transport_mode",
+                      "expression": "`transport_mode`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "carrier_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "carrier name"
+                },
+                "y": {
+                  "fieldName": "on_time_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "On-time % by carrier"
+                },
+                "color": {
+                  "fieldName": "transport_mode",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "transport mode"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "On-time % by carrier"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "b_carrier_cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_carriers",
+                  "fields": [
+                    {
+                      "name": "carrier_name",
+                      "expression": "`carrier_name`"
+                    },
+                    {
+                      "name": "spend",
+                      "expression": "SUM(`carrier_spend_usd`)"
+                    },
+                    {
+                      "name": "transport_mode",
+                      "expression": "`transport_mode`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "carrier_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "carrier name"
+                },
+                "y": {
+                  "fieldName": "spend",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Carrier spend (USD)"
+                },
+                "color": {
+                  "fieldName": "transport_mode",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "transport mode"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Carrier spend (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "t_carriers",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_carriers",
+                  "fields": [
+                    {
+                      "name": "carrier_name",
+                      "expression": "`carrier_name`"
+                    },
+                    {
+                      "name": "transport_mode",
+                      "expression": "`transport_mode`"
+                    },
+                    {
+                      "name": "contract_type",
+                      "expression": "`contract_type`"
+                    },
+                    {
+                      "name": "shipments",
+                      "expression": "`shipments`"
+                    },
+                    {
+                      "name": "on_time_pct",
+                      "expression": "`on_time_pct`"
+                    },
+                    {
+                      "name": "exception_rate_pct",
+                      "expression": "`exception_rate_pct`"
+                    },
+                    {
+                      "name": "avg_transit_hours",
+                      "expression": "`avg_transit_hours`"
+                    },
+                    {
+                      "name": "carrier_spend_usd",
+                      "expression": "`carrier_spend_usd`"
+                    },
+                    {
+                      "name": "cost_per_kg",
+                      "expression": "`cost_per_kg`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "carrier_name",
+                    "displayName": "carrier name"
+                  },
+                  {
+                    "fieldName": "transport_mode",
+                    "displayName": "transport mode"
+                  },
+                  {
+                    "fieldName": "contract_type",
+                    "displayName": "contract type"
+                  },
+                  {
+                    "fieldName": "shipments",
+                    "displayName": "shipments"
+                  },
+                  {
+                    "fieldName": "on_time_pct",
+                    "displayName": "on time pct"
+                  },
+                  {
+                    "fieldName": "exception_rate_pct",
+                    "displayName": "exception rate pct"
+                  },
+                  {
+                    "fieldName": "avg_transit_hours",
+                    "displayName": "avg transit hours"
+                  },
+                  {
+                    "fieldName": "carrier_spend_usd",
+                    "displayName": "carrier spend usd"
+                  },
+                  {
+                    "fieldName": "cost_per_kg",
+                    "displayName": "cost per kg"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Carrier scorecard"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "t_lanes",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_lanes",
+                  "fields": [
+                    {
+                      "name": "transport_mode",
+                      "expression": "`transport_mode`"
+                    },
+                    {
+                      "name": "lane",
+                      "expression": "`lane`"
+                    },
+                    {
+                      "name": "shipments",
+                      "expression": "`shipments`"
+                    },
+                    {
+                      "name": "on_time_pct",
+                      "expression": "`on_time_pct`"
+                    },
+                    {
+                      "name": "avg_transit_hours",
+                      "expression": "`avg_transit_hours`"
+                    },
+                    {
+                      "name": "revenue_usd",
+                      "expression": "`revenue_usd`"
+                    },
+                    {
+                      "name": "gross_margin_usd",
+                      "expression": "`gross_margin_usd`"
+                    },
+                    {
+                      "name": "margin_pct",
+                      "expression": "`margin_pct`"
+                    },
+                    {
+                      "name": "revenue_per_kg",
+                      "expression": "`revenue_per_kg`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "transport_mode",
+                    "displayName": "transport mode"
+                  },
+                  {
+                    "fieldName": "lane",
+                    "displayName": "lane"
+                  },
+                  {
+                    "fieldName": "shipments",
+                    "displayName": "shipments"
+                  },
+                  {
+                    "fieldName": "on_time_pct",
+                    "displayName": "on time pct"
+                  },
+                  {
+                    "fieldName": "avg_transit_hours",
+                    "displayName": "avg transit hours"
+                  },
+                  {
+                    "fieldName": "revenue_usd",
+                    "displayName": "revenue usd"
+                  },
+                  {
+                    "fieldName": "gross_margin_usd",
+                    "displayName": "gross margin usd"
+                  },
+                  {
+                    "fieldName": "margin_pct",
+                    "displayName": "margin pct"
+                  },
+                  {
+                    "fieldName": "revenue_per_kg",
+                    "displayName": "revenue per kg"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top 25 lanes by gross margin"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 8
+          }
+        }
+      ]
+    },
+    {
+      "name": "finance",
+      "displayName": "Customers, customs & finance",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "c_revenue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_customers",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "expression": "SUM(`revenue_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "value",
+                  "displayName": "Revenue (USD)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "c_margin",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_customers",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "expression": "ROUND(100 * SUM(`gross_margin_usd`) / SUM(`revenue_usd`), 1)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "value",
+                  "displayName": "Gross margin %"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Gross margin %"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "c_open_ar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_ar",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "expression": "SUM(`open_amount_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "value",
+                  "displayName": "Open receivables (USD)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open receivables (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "b_ar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_ar",
+                  "fields": [
+                    {
+                      "name": "aging_bucket",
+                      "expression": "`aging_bucket`"
+                    },
+                    {
+                      "name": "open_amount",
+                      "expression": "SUM(`open_amount_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "aging_bucket",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "aging bucket"
+                },
+                "y": {
+                  "fieldName": "open_amount",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Open receivables by age (USD)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open receivables by age (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "b_customs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_customs",
+                  "fields": [
+                    {
+                      "name": "import_country",
+                      "expression": "`import_country`"
+                    },
+                    {
+                      "name": "clearance_hours",
+                      "expression": "AVG(`avg_clearance_hours`)"
+                    },
+                    {
+                      "name": "broker",
+                      "expression": "`broker`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "import_country",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "import country"
+                },
+                "y": {
+                  "fieldName": "clearance_hours",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Avg customs clearance hours by country"
+                },
+                "color": {
+                  "fieldName": "broker",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "broker"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Avg customs clearance hours by country"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "t_customers",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_customers",
+                  "fields": [
+                    {
+                      "name": "customer_name",
+                      "expression": "`customer_name`"
+                    },
+                    {
+                      "name": "account_tier",
+                      "expression": "`account_tier`"
+                    },
+                    {
+                      "name": "industry",
+                      "expression": "`industry`"
+                    },
+                    {
+                      "name": "country_code",
+                      "expression": "`country_code`"
+                    },
+                    {
+                      "name": "shipments",
+                      "expression": "`shipments`"
+                    },
+                    {
+                      "name": "on_time_pct",
+                      "expression": "`on_time_pct`"
+                    },
+                    {
+                      "name": "revenue_usd",
+                      "expression": "`revenue_usd`"
+                    },
+                    {
+                      "name": "gross_margin_usd",
+                      "expression": "`gross_margin_usd`"
+                    },
+                    {
+                      "name": "gross_margin_pct",
+                      "expression": "`gross_margin_pct`"
+                    },
+                    {
+                      "name": "avg_revenue_per_shipment",
+                      "expression": "`avg_revenue_per_shipment`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "customer_name",
+                    "displayName": "customer name"
+                  },
+                  {
+                    "fieldName": "account_tier",
+                    "displayName": "account tier"
+                  },
+                  {
+                    "fieldName": "industry",
+                    "displayName": "industry"
+                  },
+                  {
+                    "fieldName": "country_code",
+                    "displayName": "country code"
+                  },
+                  {
+                    "fieldName": "shipments",
+                    "displayName": "shipments"
+                  },
+                  {
+                    "fieldName": "on_time_pct",
+                    "displayName": "on time pct"
+                  },
+                  {
+                    "fieldName": "revenue_usd",
+                    "displayName": "revenue usd"
+                  },
+                  {
+                    "fieldName": "gross_margin_usd",
+                    "displayName": "gross margin usd"
+                  },
+                  {
+                    "fieldName": "gross_margin_pct",
+                    "displayName": "gross margin pct"
+                  },
+                  {
+                    "fieldName": "avg_revenue_per_shipment",
+                    "displayName": "avg revenue per shipment"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Customer profitability"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 8
+          }
+        }
+      ]
+    }
+  ]
+}

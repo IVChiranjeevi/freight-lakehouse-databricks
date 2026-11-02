@@ -1,0 +1,33 @@
+# Freight forwarding lakehouse (air, ocean, road, customs brokerage).
+# Deploy with: databricks bundle deploy -t dev
+bundle:
+  name: freight_lakehouse
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog holding the raw/bronze/silver/gold schemas
+    default: logistics_dev
+  num_shipments:
+    description: Shipments generated per data-generator run
+    default: "2000"
+  warehouse_id:
+    description: SQL warehouse that runs the dashboard queries
+    lookup:
+      warehouse: Serverless Starter Warehouse
+
+# Workspace host comes from DATABRICKS_HOST (CI) or the CLI profile (local: --profile / DEFAULT).
+targets:
+  dev:
+    mode: development
+    default: true
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: logistics_prod
+      num_shipments: "5000"

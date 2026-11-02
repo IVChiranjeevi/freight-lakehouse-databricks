@@ -1,0 +1,58 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Service principal (OAuth M2M) credentials, set under Settings → Secrets and variables → Actions.
+  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+  DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+  DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+
+  validate:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: Validate bundle (dev and prod)
+        if: env.DATABRICKS_HOST != ''
+        run: |
+          databricks bundle validate -t dev
+          databricks bundle validate -t prod
+      - name: Skip (no Databricks secrets configured)
+        if: env.DATABRICKS_HOST == ''
+        run: echo "::warning::DATABRICKS_HOST secret not set; bundle validation skipped."
+
+  deploy-prod:
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: Deploy bundle to prod
+        if: env.DATABRICKS_HOST != ''
+        run: databricks bundle deploy -t prod
+      - name: Skip (no Databricks secrets configured)
+        if: env.DATABRICKS_HOST == ''
+        run: echo "::warning::DATABRICKS_HOST secret not set; deployment skipped."
